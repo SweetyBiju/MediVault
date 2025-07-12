@@ -1,0 +1,204 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MEDiVAULT - Cloud Storage</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-left">
+            <a href="index.html" class="logo">MEDiVAULT</a>
+            <div class="nav-links">
+                <a href="index.html">Dashboard</a>
+                <a href="saved-doctors.html">Doctors</a>
+                <a href="#">Medicines</a>
+                <a href="#">Appointments</a>
+            </div>
+        </div>
+        <div class="nav-right">
+            <div class="language-switcher">
+                <select>
+                    <option>English</option>
+                    <option>Español</option>
+                    <option>Français</option>
+                </select>
+            </div>
+            <div class="user-menu">
+                <button class="user-btn">👤</button>
+                <div class="user-dropdown">
+                    <a href="saved-doctors.html" class="dropdown-item">Saved Doctors</a>
+                    <a href="uploaded-files.html" class="dropdown-item">Uploaded Prescriptions/Documents</a>
+                    <a href="access-control.html" class="dropdown-item">Access Control</a>
+                    <a href="cloud-storage.html" class="dropdown-item">Cloud Storage</a>
+                    <a href="site-settings.html" class="dropdown-item">Site Settings</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="page-content">
+        <h2>Cloud Storage</h2>
+
+        <div class="section-card">
+            <h3>Storage Usage</h3>
+            <p>Storage Used: <span id="storageUsed">0</span> MB / <span id="storageTotal">100</span> MB</p>
+            <div class="storage-bar">
+                <div class="storage-used" id="storageBar" style="width: 0%;"></div>
+            </div>
+            <button class="upgrade-btn">Upgrade to Premium</button>
+            <div class="storage-details">
+                <h4>Storage Breakdown</h4>
+                <ul id="storageBreakdown">
+                    <!-- Dynamic content will be inserted here -->
+                </ul>
+            </div>
+        </div>
+
+        <div class="section-card">
+            <h3>File Management</h3>
+            <input type="file" id="fileUpload" multiple>
+            <button class="upload-btn">Upload Files</button>
+            <div id="fileList">
+                <!-- Dynamic file list will be inserted here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Sample storage data
+        let storageData = {
+            used: 25,
+            total: 100,
+            breakdown: [
+                { type: "Prescriptions", size: 15, count: 5 },
+                { type: "Documents", size: 8, count: 3 },
+                { type: "Images", size: 2, count: 2 }
+            ],
+            files: [
+                { name: "prescription_2025-07-01.pdf", size: 2, type: "Prescription", date: "2025-07-01" },
+                { name: "blood_test_2025-06-28.jpg", size: 1, type: "Image", date: "2025-06-28" }
+            ]
+        };
+
+        // Update storage bar and details
+        function updateStorageDisplay() {
+            const used = storageData.used;
+            const total = storageData.total;
+            document.getElementById('storageUsed').textContent = used;
+            document.getElementById('storageTotal').textContent = total;
+            document.getElementById('storageBar').style.width = `${(used / total) * 100}%`;
+            
+            const breakdownList = document.getElementById('storageBreakdown');
+            breakdownList.innerHTML = storageData.breakdown.map(item => `
+                <li>${item.type}: ${item.size} MB (${item.count} files)</li>
+            `).join('');
+
+            const fileList = document.getElementById('fileList');
+            fileList.innerHTML = storageData.files.map(file => `
+                <div class="file-entry">
+                    <p><strong>${file.name}</strong></p>
+                    <p>Type: ${file.type} | Size: ${file.size} MB | Uploaded: ${file.date}</p>
+                    <button onclick="deleteFile('${file.name}')">Delete</button>
+                </div>
+            `).join('');
+        }
+
+        // Upload file (placeholder)
+        document.querySelector('.upload-btn').addEventListener('click', () => {
+            const files = document.getElementById('fileUpload').files;
+            if (files.length > 0) {
+                Array.from(files).forEach(file => {
+                    storageData.files.push({
+                        name: file.name,
+                        size: (file.size / (1024 * 1024)).toFixed(2),
+                        type: file.type.includes('image') ? 'Image' : 'Document',
+                        date: new Date().toISOString().split('T')[0]
+                    });
+                    storageData.used += Number((file.size / (1024 * 1024)).toFixed(2));
+                });
+                updateStorageDisplay();
+            }
+        });
+
+        // Delete file
+        function deleteFile(name) {
+            if (confirm(`Delete ${name}?`)) {
+                const file = storageData.files.find(f => f.name === name);
+                storageData.used -= file.size;
+                storageData.files = storageData.files.filter(f => f.name !== name);
+                updateStorageDisplay();
+            }
+        }
+
+        // Upgrade button (placeholder)
+        document.querySelector('.upgrade-btn').addEventListener('click', () => {
+            alert('Redirect to premium upgrade page.');
+        });
+
+        // Initialize
+        updateStorageDisplay();
+    </script>
+
+    <style>
+        .file-entry {
+            background: rgba(255, 255, 255, 0.08);
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+        .upload-btn, .upgrade-btn {
+            padding: 8px 16px;
+            background: #4caf50;
+            border: none;
+            border-radius: 6px;
+            color: white;
+            cursor: pointer;
+            margin-top: 1rem;
+        }
+        #fileUpload {
+            margin: 1rem 0;
+        }
+    </style>
+</body>
+</html>

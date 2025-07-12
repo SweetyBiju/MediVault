@@ -1,0 +1,234 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MEDiVAULT - Access Control</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-left">
+            <a href="index.html" class="logo">MEDiVAULT</a>
+            <div class="nav-links">
+                <a href="index.html">Dashboard</a>
+                <a href="saved-doctors.html">Doctors</a>
+                <a href="#">Medicines</a>
+                <a href="#">Appointments</a>
+            </div>
+        </div>
+        <div class="nav-right">
+            <div class="language-switcher">
+                <select>
+                    <option>English</option>
+                    <option>Español</option>
+                    <option>Français</option>
+                </select>
+            </div>
+            <div class="user-menu">
+                <button class="user-btn">👤</button>
+                <div class="user-dropdown">
+                    <a href="saved-doctors.html" class="dropdown-item">Saved Doctors</a>
+                    <a href="uploaded-files.html" class="dropdown-item">Uploaded Prescriptions/Documents</a>
+                    <a href="access-control.html" class="dropdown-item">Access Control</a>
+                    <a href="cloud-storage.html" class="dropdown-item">Cloud Storage</a>
+                    <a href="site-settings.html" class="dropdown-item">Site Settings</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="page-content">
+        <h2>Access Control</h2>
+
+        <div class="section-card">
+            <h3>Access List</h3>
+            <div class="access-list">
+                <table class="access-table">
+                    <thead>
+                        <tr>
+                            <th>User</th>
+                            <th>Role</th>
+                            <th>Access Level</th>
+                            <th>Last Accessed</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="accessTableBody">
+                        <!-- Dynamic content will be inserted here -->
+                    </tbody>
+                </table>
+                <button class="add-access-btn">Add New Access</button>
+            </div>
+        </div>
+
+        <div class="section-card">
+            <h3>Security Standards</h3>
+            <ul>
+                <li><strong>Encryption:</strong> AES-256 encryption for all data</li>
+                <li><strong>Compliance:</strong> HIPAA-compliant storage and transmission</li>
+                <li><strong>Access Logs:</strong> All access is logged and auditable</li>
+            </ul>
+            <button class="view-logs-btn">View Access Logs</button>
+        </div>
+
+        <div class="section-card access-log-modal" style="display: none;">
+            <h3>Access Logs</h3>
+            <div id="accessLogs">
+                <!-- Dynamic logs will be inserted here -->
+            </div>
+            <button class="close-modal-btn">Close</button>
+        </div>
+    </div>
+
+    <div class="modal-backdrop" style="display: none;"></div>
+
+    <script>
+        // Sample data for access list
+        const accessList = [
+            { id: 1, user: "Dr. Aritra Ghosh", role: "Doctor", accessLevel: "Full Access", lastAccessed: "2025-07-10 14:30" },
+            { id: 2, user: "Nurse Jane", role: "Nurse", accessLevel: "Read-Only", lastAccessed: "2025-07-09 09:15" }
+        ];
+
+        // Sample access logs
+        const accessLogs = [
+            { user: "Dr. Aritra Ghosh", action: "Viewed Record", timestamp: "2025-07-10 14:30" },
+            { user: "Nurse Jane", action: "Downloaded Prescription", timestamp: "2025-07-09 09:15" }
+        ];
+
+        // Populate access list table
+        function populateAccessList() {
+            const tableBody = document.getElementById('accessTableBody');
+            tableBody.innerHTML = '';
+            accessList.forEach(item => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${item.user}</td>
+                    <td>${item.role}</td>
+                    <td>${item.accessLevel}</td>
+                    <td>${item.lastAccessed}</td>
+                    <td>
+                        <button onclick="editAccess(${item.id})">Edit</button>
+                        <button onclick="removeAccess(${item.id})">Remove</button>
+                    </td>
+                `;
+                tableBody.appendChild(row);
+            });
+        }
+
+        // Show access logs modal
+        document.querySelector('.view-logs-btn').addEventListener('click', () => {
+            const modal = document.querySelector('.access-log-modal');
+            const backdrop = document.querySelector('.modal-backdrop');
+            const logsContainer = document.getElementById('accessLogs');
+            logsContainer.innerHTML = accessLogs.map(log => `
+                <div class="log-entry">
+                    <p><strong>User:</strong> ${log.user}</p>
+                    <p><strong>Action:</strong> ${log.action}</p>
+                    <p><strong>Timestamp:</strong> ${log.timestamp}</p>
+                </div>
+            `).join('');
+            modal.style.display = 'block';
+            backdrop.style.display = 'block';
+        });
+
+        // Close modal
+        document.querySelector('.close-modal-btn').addEventListener('click', () => {
+            document.querySelector('.access-log-modal').style.display = 'none';
+            document.querySelector('.modal-backdrop').style.display = 'none';
+        });
+
+        // Add new access (placeholder)
+        document.querySelector('.add-access-btn').addEventListener('click', () => {
+            alert('Add new access functionality to be implemented.');
+        });
+
+        // Edit access (placeholder)
+        function editAccess(id) {
+            alert(`Edit access for ID ${id}`);
+        }
+
+        // Remove access (placeholder)
+        function removeAccess(id) {
+            if (confirm(`Remove access for ID ${id}?`)) {
+                const index = accessList.findIndex(item => item.id === id);
+                accessList.splice(index, 1);
+                populateAccessList();
+            }
+        }
+
+        // Initialize
+        populateAccessList();
+    </script>
+
+    <style>
+        .access-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+        .access-table th, .access-table td {
+            padding: 0.8rem;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .access-table th {
+            background: rgba(255, 255, 255, 0.1);
+        }
+        .add-access-btn, .view-logs-btn, .close-modal-btn {
+            padding: 8px 16px;
+            background: #4caf50;
+            border: none;
+            border-radius: 6px;
+            color: white;
+            cursor: pointer;
+            margin-top: 1rem;
+        }
+        .log-entry {
+            background: rgba(255, 255, 255, 0.08);
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+    </style>
+</body>
+</html>
