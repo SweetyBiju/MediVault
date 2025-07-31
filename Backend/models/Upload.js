@@ -10,6 +10,13 @@ const uploadSchema = new mongoose.Schema({
   otp: { type: Number, required: true },
   otpExpiry: { type: Date, required: true },
   preview: { type: String }, // URL or path to preview
+  filePath: { type: String },
+  description: { type: String },
+  date: { type: Date, default: Date.now },
+  bodyPart: { type: String },
+  severity: { type: String, enum: ['low', 'medium', 'high', 'critical'], default: 'low' },
+  tags: { type: [String], default: [] },
+  sharedFrom: { type: mongoose.Schema.Types.ObjectId, ref: 'Upload' }
   
 });
 

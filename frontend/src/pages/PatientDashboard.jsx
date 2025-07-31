@@ -203,9 +203,7 @@ const PatientDashboard = () => {
           <section className="max-w-6xl mx-auto px-4">
             <HealthScoreGauge score={92} />
           </section>
-        </AnimatedSection>
-        <QuickActions />
-        <AnimatedSection>
+        
           <section className="max-w-6xl mx-auto px-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 ">
             <ChartCard title="BP History" label="Latest: 122/84 mmHg " className="hover:ring-1 hover:ring-blue-400">
               <canvas ref={bpRef} className="w-full h-full" />
@@ -259,9 +257,6 @@ const PatientDashboard = () => {
         </AnimatedSection>
       </main>
 
-      <div className="fixed bottom-4 left-4 z-30">
-        <EmergencyHealthCard />
-      </div>
       <div className="fixed bottom-24 left-4 z-40">
         <Chatbot />
       </div>

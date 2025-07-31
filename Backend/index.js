@@ -3,6 +3,7 @@ import cors from 'cors';
 import connectDB from './config/database.js';
 import { config } from './config/env.js';
 
+
 // Routes
 import authRoutes from './routes/authRoutes.js';
 import appointmentRoutes from './routes/appointments.router.js';
@@ -10,13 +11,14 @@ import doctorRoutes from './routes/doctors.js';
 import insightRoutes from './routes/insightRoutes.js';
 import uploadRoutes from './routes/uploadRoutes.js';
 import allergyRoutes from './routes/allergyRoutes.js';
+import botRouter from "./routes/bot.routes.js";
 // import dashboardRoutes from './routes/dashboardRoutes.js'; // Uncomment if needed
 
 const app = express();
 
 // ===== Middleware =====
 app.use(cors({
-  origin: 'http://localhost:5173', // Match your frontend URL
+  origin: 'http://localhost:5174', // Match your frontend URL
   credentials: true,
 }));
 app.use(express.json());
@@ -32,6 +34,8 @@ app.use('/api/insights', insightRoutes);
 app.use('/api/uploads', uploadRoutes);
 app.use('/api/allergies', allergyRoutes);
 // app.use('/api/dashboard', dashboardRoutes); // Uncomment if needed
+
+app.use("/api/bot", botRouter);
 
 console.log("All routes are mounted");
 

@@ -18,17 +18,18 @@ import {
   Plus,
   Download,
   Trash2,
-  Edit,
   Clock,
   Shield,
-  AlertCircle,
-  CheckCircle,
   X,
-  Send
+  Send,
+  XCircle
 } from 'lucide-react';
+import { toast } from 'react-toastify';
+import InsightsModal from '../components/InsightsModal';
+import { jsPDF } from 'jspdf';
 
 const Records = () => {
-  const { user } = useAuth();
+  const { currentUser } = useAuth();
   const [records, setRecords] = useState([]);
   const [filteredRecords, setFilteredRecords] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -36,7 +37,18 @@ const Records = () => {
   const [selectedRecord, setSelectedRecord] = useState(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showViewModal, setShowViewModal] = useState(false);
   const [selectedBodyPart, setSelectedBodyPart] = useState(null);
+  const [showInsightsModal, setShowInsightsModal] = useState(false);
+  const [currentInsights, setCurrentInsights] = useState(null);
+  const [dateRange, setDateRange] = useState({ start: '', end: '' });
+  const [shareForm, setShareForm] = useState({
+    shareMethod: 'whatsapp',
+    doctorEmail: '',
+    expiresAt: '',
+    accessLevel: 'read',
+    message: ''
+  });
   const [uploadForm, setUploadForm] = useState({
     title: '',
     type: 'consultation',
@@ -45,15 +57,9 @@ const Records = () => {
     bodyPart: '',
     severity: 'low',
     tags: '',
-    notes: '',
     files: []
   });
-  const [shareForm, setShareForm] = useState({
-    doctorEmail: '',
-    expiresAt: '',
-    accessLevel: 'read',
-    message: ''
-  });
+  const [isDragging, setIsDragging] = useState(false); // For drag-and-drop feedback
 
   const recordTypes = [
     { value: 'all', label: 'All Records', icon: FileText },
@@ -82,38 +88,57 @@ const Records = () => {
 
   useEffect(() => {
     filterRecords();
-  }, [records, searchTerm, filterType, selectedBodyPart]);
+  }, [records, searchTerm, filterType, selectedBodyPart, dateRange]);
 
   const fetchRecords = async () => {
     const token = localStorage.getItem('token');
+    if (!token) {
+      toast.error('No authentication token found. Please log in.');
+      return;
+    }
     try {
       const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/uploads`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (!res.ok) throw new Error(`Failed to fetch records: ${res.status}`);
       const data = await res.json();
       if (data.success) {
-        // Transform API data to match the record structure
-        const transformedRecords = data.data.map(record => ({
-          id: record._id, // Use MongoDB _id
-          title: record.name || 'Untitled Record', // Adjust based on your API response
-          type: record.type || 'other',
-          description: record.description || 'No description available',
-          date: record.date || new Date().toISOString().split('T')[0],
-          doctor: record.doctor || { name: 'Unknown Doctor', specialty: 'Unknown' },
-          bodyPart: record.bodyPart || '',
-          severity: record.severity || '',
-          tags: record.tags || [],
-          files: record.files || [],
-          aiInsights: {
-            riskScore: record.aiInsights?.riskScore || Math.floor(Math.random() * 100),
-            recommendations: record.aiInsights?.recommendations || ['AI analysis pending']
-          },
-          createdAt: record.createdAt || record.date
-        }));
+        const transformedRecords = await Promise.all(
+          data.data.map(async (record) => {
+            let aiInsight = null;
+            try {
+              const insightRes = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/insights/${record._id}`, {
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              if (insightRes.ok) {
+                aiInsight = await insightRes.json();
+              }
+            } catch (err) {
+              console.error(`Error fetching insights for record ${record._id}:`, err.message);
+            }
+            return {
+              id: record._id,
+              title: record.name || 'Untitled Record',
+              type: record.type || 'other',
+              description: record.description || 'No description available',
+              date: record.date || new Date().toISOString().split('T')[0],
+              doctor: record.doctor || { name: 'Unknown Doctor', specialty: 'Unknown' },
+              bodyPart: record.bodyPart || '',
+              severity: record.severity || 'low',
+              tags: record.tags || [],
+              files: [{ name: record.name, size: `${record.size} MB`, preview: record.preview, otp: record.otp }],
+              aiInsight,
+              createdAt: record.createdAt || record.date
+            };
+          })
+        );
         setRecords(transformedRecords);
+      } else {
+        throw new Error(data.error || 'Failed to fetch records');
       }
     } catch (error) {
-      console.error('Error fetching records:', error);
+      console.error('Error fetching records:', error.message);
+      toast.error('Failed to fetch records: ' + error.message);
     }
   };
 
@@ -136,12 +161,226 @@ const Records = () => {
       filtered = filtered.filter(record => record.bodyPart === selectedBodyPart);
     }
 
+    if (dateRange.start || dateRange.end) {
+      filtered = filtered.filter(record => {
+        const recordDate = new Date(record.date).getTime();
+        const start = dateRange.start ? new Date(dateRange.start).getTime() : -Infinity;
+        const end = dateRange.end ? new Date(dateRange.end).getTime() : Infinity;
+        return recordDate >= start && recordDate <= end;
+      });
+    }
+
     setFilteredRecords(filtered);
+  };
+
+  const handleViewRecord = (record) => {
+    setSelectedRecord(record);
+    setShowViewModal(true);
+  };
+
+  const handleDownloadRecord = async (record) => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        window.alert('Download failed. Please log in again.');
+        return;
+      }
+
+      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/uploads/${record.id}/file?otp=${record.files[0].otp}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        window.alert('Download failed. Please try again.');
+        return;
+      }
+
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = record.files[0]?.name || `${record.title}.${record.type}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      window.alert('Download successful');
+    } catch (err) {
+      console.error('[Error downloading record]:', err.message);
+      window.alert('Download failed. Please try again.');
+    }
+  };
+
+  const handleShareRecord = async (e) => {
+    e.preventDefault();
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) throw new Error('Authentication token missing. Please log in again.');
+      if (!selectedRecord) throw new Error('No record selected for sharing.');
+      if (!currentUser?._id) throw new Error('User not authenticated. Please log in again.');
+
+      if (shareForm.shareMethod === 'whatsapp') {
+        const shareLink = `${selectedRecord.files[0].preview}?otp=${selectedRecord.files[0].otp}`;
+        const message = encodeURIComponent(
+          `${shareForm.message || 'Please review my medical record.'}\n${shareLink}`
+        );
+        const whatsappUrl = `https://wa.me/?text=${message}`;
+        window.open(whatsappUrl, '_blank');
+        window.alert('Record shared successfully');
+      } else if (shareForm.shareMethod === 'portal') {
+        if (!shareForm.doctorEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(shareForm.doctorEmail)) {
+          throw new Error('Invalid doctor email');
+        }
+
+        const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/uploads/share`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            recordId: selectedRecord.id,
+            sharedWithEmail: shareForm.doctorEmail,
+            expiresAt: shareForm.expiresAt,
+            accessLevel: shareForm.accessLevel,
+            message: shareForm.message,
+            sharedByUserId: currentUser._id
+          }),
+        });
+
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({}));
+          throw new Error(`Failed to share record: ${res.status} ${errorData.error || 'Unknown error'}`);
+        }
+
+        window.alert('Record shared successfully');
+      }
+
+      setShowShareModal(false);
+      setShareForm({ shareMethod: 'whatsapp', doctorEmail: '', expiresAt: '', accessLevel: 'read', message: '' });
+      setSelectedRecord(null);
+    } catch (err) {
+      console.error('[Error sharing record]:', err.message);
+      toast.error(err.message || 'Failed to share record. Please try again.');
+    }
+  };
+
+  const handleDeleteRecord = async (recordId) => {
+    if (!window.confirm('Are you sure you want to delete this record?')) return;
+
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) throw new Error('Authentication token missing. Please log in again.');
+
+      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/uploads/${recordId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!res.ok) throw new Error(`Failed to delete record: ${res.status}`);
+
+      setRecords(prevRecords => prevRecords.filter(r => r.id !== recordId));
+      toast.success('Record deleted successfully!');
+    } catch (err) {
+      console.error('[Error deleting record]:', err.message);
+      toast.error('Failed to delete record: ' + err.message);
+    }
+  };
+
+  const handleGenerateInsights = async (record) => {
+    try {
+      if (!record.id) throw new Error('Invalid record ID');
+      const token = localStorage.getItem('token');
+      if (!token) throw new Error('Authentication token missing. Please log in again.');
+      if (!currentUser?._id) throw new Error('User not authenticated. Please log in again.');
+
+      console.log('[Generate Insights Input]:', { reportId: record.id, userId: currentUser._id, token });
+      setCurrentInsights(null);
+      setShowInsightsModal(true);
+
+      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/insights/generate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ reportId: record.id, userId: currentUser._id }),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(`Failed to generate insights: ${res.status} ${res.statusText} - ${errorData.error || 'Unknown error'}`);
+      }
+
+      const newInsight = await res.json();
+      console.log('[Generated Insights]:', newInsight);
+
+      setRecords(prevRecords =>
+        prevRecords.map(r =>
+          r.id === record.id ? { ...r, aiInsight: newInsight } : r
+        )
+      );
+      setCurrentInsights(newInsight);
+      toast.success('Insights generated successfully!');
+    } catch (err) {
+      console.error('[Error generating insights]:', err.message);
+      toast.error(err.message || 'Failed to generate insights. Please try again.');
+      setShowInsightsModal(false);
+    }
+  };
+
+  const handleDownloadInsights = (insight, recordTitle) => {
+    try {
+      const doc = new jsPDF();
+      doc.setFontSize(16);
+      doc.text(`Medical Insights for ${recordTitle}`, 20, 20);
+
+      doc.setFontSize(12);
+      doc.text('Summary:', 20, 40);
+      doc.setFontSize(10);
+      const summaryLines = doc.splitTextToSize(insight.summary || 'No summary available', 170);
+      doc.text(summaryLines, 20, 50);
+
+      let yOffset = 50 + summaryLines.length * 7 + 10;
+      doc.setFontSize(12);
+      doc.text('Parameters:', 20, yOffset);
+      doc.setFontSize(10);
+      insight.parameters?.forEach((param, index) => {
+        const paramText = `${index + 1}. ${param.name || `Parameter ${index + 1}`}: ${param.value} (${param.range}, ${param.meaning}, ${param.status}, ${param.organ})`;
+        const paramLines = doc.splitTextToSize(paramText, 170);
+        doc.text(paramLines, 20, yOffset + 10);
+        yOffset += paramLines.length * 7 + 5;
+      });
+
+      doc.setFontSize(12);
+      doc.text('Recommendations:', 20, yOffset);
+      doc.setFontSize(10);
+      insight.recommendations?.forEach((rec, index) => {
+        const recText = `${index + 1}. ${rec}`;
+        const recLines = doc.splitTextToSize(recText, 170);
+        doc.text(recLines, 20, yOffset + 10);
+        yOffset += recLines.length * 7 + 5;
+      });
+
+      doc.save(`${recordTitle}_insights.pdf`);
+      toast.success('Insights downloaded as PDF!');
+    } catch (err) {
+      console.error('[Error downloading insights as PDF]:', err.message);
+      toast.error('Failed to download insights as PDF.');
+    }
   };
 
   const handleUploadSubmit = async (e) => {
     e.preventDefault();
     const token = localStorage.getItem('token');
+    if (!token) {
+      toast.error('No authentication token found. Please log in.');
+      return;
+    }
+    if (uploadForm.files.length === 0) {
+      toast.error('Please select at least one file to upload.');
+      return;
+    }
+
     const formData = new FormData();
     formData.append('title', uploadForm.title);
     formData.append('type', uploadForm.type);
@@ -149,7 +388,7 @@ const Records = () => {
     formData.append('date', uploadForm.date);
     formData.append('bodyPart', uploadForm.bodyPart);
     formData.append('severity', uploadForm.severity);
-    formData.append('tags', uploadForm.tags.split(',').map(tag => tag.trim()));
+    formData.append('tags', uploadForm.tags);
     uploadForm.files.forEach(file => formData.append('files', file));
 
     try {
@@ -160,7 +399,7 @@ const Records = () => {
       });
       const data = await res.json();
       if (data.success) {
-        fetchRecords(); // Refresh records
+        fetchRecords();
         setShowUploadModal(false);
         setUploadForm({
           title: '',
@@ -170,25 +409,40 @@ const Records = () => {
           bodyPart: '',
           severity: 'low',
           tags: '',
-          notes: '',
           files: []
         });
+        toast.success('Record uploaded successfully!');
+      } else {
+        throw new Error(data.error || 'Server error');
       }
     } catch (error) {
-      console.error('Upload error:', error);
+      console.error('Upload error:', error.message);
+      toast.error('Failed to upload record: ' + error.message);
     }
   };
 
-  const handleShare = async (e) => {
+  const handleFileChange = (e) => {
+    const newFiles = Array.from(e.target.files);
+    setUploadForm({ ...uploadForm, files: [...uploadForm.files, ...newFiles] });
+  };
+
+  const handleFileDrop = (e) => {
     e.preventDefault();
-    // Mock share logic (to be replaced with API call if needed)
-    alert(`Record shared with ${shareForm.doctorEmail} until ${shareForm.expiresAt}`);
-    setShowShareModal(false);
-    setShareForm({
-      doctorEmail: '',
-      expiresAt: '',
-      accessLevel: 'read',
-      message: ''
+    setIsDragging(false);
+    const newFiles = Array.from(e.dataTransfer.files).filter(file => {
+      const ext = path.extname(file.name).toLowerCase();
+      return ['.pdf', '.docx', '.png', '.jpg', '.jpeg'].includes(ext);
+    });
+    if (newFiles.length < e.dataTransfer.files.length) {
+      toast.error('Some files were rejected. Only PDF, DOCX, and image files are allowed.');
+    }
+    setUploadForm({ ...uploadForm, files: [...uploadForm.files, ...newFiles] });
+  };
+
+  const handleRemoveFile = (indexToRemove) => {
+    setUploadForm({
+      ...uploadForm,
+      files: uploadForm.files.filter((_, index) => index !== indexToRemove)
     });
   };
 
@@ -219,8 +473,8 @@ const Records = () => {
           >
             <h1 className="text-3xl font-bold text-gray-900 mb-2">Your Records</h1>
             <p className="text-gray-600">
-              {user?.role === 'patient' 
-                ? 'Access and manage patient medical records with AI-powered insights.'
+              {currentUser?.role === 'patient'
+                ? 'Access and manage your medical records with AI-powered insights.'
                 : 'Manage your medical records securely and share them with healthcare providers.'
               }
             </p>
@@ -239,7 +493,7 @@ const Records = () => {
             >
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
               <div className="space-y-3">
-                {user?.role === 'patient' && (
+                {currentUser?.role === 'patient' && (
                   <button
                     onClick={() => setShowUploadModal(true)}
                     className="w-full flex items-center space-x-3 p-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 transition-all"
@@ -249,7 +503,13 @@ const Records = () => {
                   </button>
                 )}
                 <button
-                  onClick={() => setShowShareModal(true)}
+                  onClick={() => {
+                    if (!selectedRecord) {
+                      toast.error('Please select a record to share.');
+                      return;
+                    }
+                    setShowShareModal(true);
+                  }}
                   className="w-full flex items-center space-x-3 p-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
                 >
                   <Share2 className="w-5 h-5" />
@@ -268,7 +528,6 @@ const Records = () => {
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Body Map</h3>
               <div className="relative">
                 <svg viewBox="0 0 100 100" className="w-full h-64 border border-gray-200 rounded-lg">
-                  {/* Simple body outline */}
                   <ellipse cx="50" cy="15" rx="8" ry="10" fill="#e5e7eb" stroke="#9ca3af" strokeWidth="1" />
                   <rect x="42" y="25" width="16" height="25" rx="3" fill="#e5e7eb" stroke="#9ca3af" strokeWidth="1" />
                   <rect x="42" y="50" width="16" height="20" rx="3" fill="#e5e7eb" stroke="#9ca3af" strokeWidth="1" />
@@ -276,7 +535,6 @@ const Records = () => {
                   <rect x="72" y="30" width="8" height="20" rx="4" fill="#e5e7eb" stroke="#9ca3af" strokeWidth="1" />
                   <rect x="38" y="70" width="8" height="25" rx="4" fill="#e5e7eb" stroke="#9ca3af" strokeWidth="1" />
                   <rect x="54" y="70" width="8" height="25" rx="4" fill="#e5e7eb" stroke="#9ca3af" strokeWidth="1" />
-                  
                   {bodyParts.map((part) => (
                     <circle
                       key={part.id}
@@ -357,10 +615,22 @@ const Records = () => {
                     <Filter className="w-5 h-5" />
                     <span>Filter</span>
                   </button>
-                  <button className="flex items-center space-x-2 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
-                    <Calendar className="w-5 h-5" />
-                    <span>Date</span>
-                  </button>
+                  <div className="flex items-center space-x-2">
+                    <Calendar className="w-5 h-5 text-gray-400" />
+                    <input
+                      type="date"
+                      value={dateRange.start}
+                      onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
+                      className="px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    <span className="text-gray-600">to</span>
+                    <input
+                      type="date"
+                      value={dateRange.end}
+                      onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
+                      className="px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
                 </div>
               </div>
             </motion.div>
@@ -422,17 +692,32 @@ const Records = () => {
                         </div>
                       </div>
                       <div className="flex items-center space-x-2">
-                        <button className="p-2 text-gray-400 hover:text-blue-600 transition-colors">
+                        <button
+                          onClick={() => handleViewRecord(record)}
+                          className="p-2 text-gray-400 hover:text-blue-600 transition-colors"
+                        >
                           <Eye className="w-5 h-5" />
                         </button>
-                        <button className="p-2 text-gray-400 hover:text-green-600 transition-colors">
+                        <button
+                          onClick={() => handleDownloadRecord(record)}
+                          className="p-2 text-gray-400 hover:text-green-600 transition-colors"
+                        >
                           <Download className="w-5 h-5" />
                         </button>
-                        <button className="p-2 text-gray-400 hover:text-purple-600 transition-colors">
+                        <button
+                          onClick={() => {
+                            setSelectedRecord(record);
+                            setShowShareModal(true);
+                          }}
+                          className="p-2 text-gray-400 hover:text-purple-600 transition-colors"
+                        >
                           <Share2 className="w-5 h-5" />
                         </button>
-                        {user?.role === 'patient' && (
-                          <button className="p-2 text-gray-400 hover:text-red-600 transition-colors">
+                        {currentUser?.role === 'patient' && (
+                          <button
+                            onClick={() => handleDeleteRecord(record.id)}
+                            className="p-2 text-gray-400 hover:text-red-600 transition-colors"
+                          >
                             <Trash2 className="w-5 h-5" />
                           </button>
                         )}
@@ -440,23 +725,45 @@ const Records = () => {
                     </div>
 
                     {/* AI Insights */}
-                    {record.aiInsights && (
-                      <div className="mt-4 p-4 bg-purple-50 border border-purple-200 rounded-lg">
-                        <div className="flex items-center space-x-2 mb-2">
-                          <Brain className="w-5 h-5 text-purple-600" />
-                          <span className="font-medium text-purple-900">AI Insights</span>
-                          <span className="text-sm text-purple-600">Risk Score: {record.aiInsights.riskScore}/100</span>
-                        </div>
-                        <ul className="text-sm text-purple-800 space-y-1">
-                          {record.aiInsights.recommendations.map((rec, recIndex) => (
-                            <li key={recIndex} className="flex items-start space-x-2">
-                              <CheckCircle className="w-4 h-4 text-purple-600 mt-0.5 flex-shrink-0" />
-                              <span>{rec}</span>
-                            </li>
-                          ))}
-                        </ul>
+                    <div className="mt-4 p-4 bg-purple-50 border border-purple-200 rounded-lg">
+                      <div className="flex items-center space-x-2 mb-2">
+                        <Brain className="w-5 h-5 text-purple-600" />
+                        <span className="font-medium text-purple-900">AI Insights</span>
                       </div>
-                    )}
+                      {record.aiInsight ? (
+                        <div>
+                          <p className="text-sm text-purple-800 mb-2">{record.aiInsight.summary}</p>
+                          <button
+                            onClick={() => {
+                              setCurrentInsights(record.aiInsight);
+                              setShowInsightsModal(true);
+                            }}
+                            className="flex items-center gap-1 text-xs bg-purple-100 text-purple-800 px-3 py-1 rounded-md hover:bg-purple-200"
+                          >
+                            <Eye className="w-4 h-4" />
+                            <span>View Full Insights</span>
+                          </button>
+                          <button
+                            onClick={() => handleDownloadInsights(record.aiInsight, record.title)}
+                            className="flex items-center gap-1 text-xs bg-green-100 text-green-800 px-3 py-1 rounded-md hover:bg-green-200 ml-2"
+                          >
+                            <Download className="w-4 h-4" />
+                            <span>Download Insights</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center space-x-2">
+                          <span className="text-sm text-purple-800">AI Insights Pending</span>
+                          <button
+                            onClick={() => handleGenerateInsights(record)}
+                            className="flex items-center gap-1 text-xs bg-purple-100 text-purple-800 px-3 py-1 rounded-md hover:bg-purple-200"
+                          >
+                            <Brain className="w-4 h-4" />
+                            <span>Generate Insights</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
 
                     {/* Files */}
                     {record.files && record.files.length > 0 && (
@@ -489,12 +796,12 @@ const Records = () => {
                   <FileText className="w-16 h-16 text-gray-300 mx-auto mb-4" />
                   <h3 className="text-lg font-medium text-gray-900 mb-2">No records found</h3>
                   <p className="text-gray-600 mb-6">
-                    {searchTerm || filterType !== 'all' || selectedBodyPart
+                    {searchTerm || filterType !== 'all' || selectedBodyPart || dateRange.start || dateRange.end
                       ? 'Try adjusting your search or filters'
                       : 'Upload your first medical record to get started'
                     }
                   </p>
-                  {user?.role === 'patient' && (
+                  {currentUser?.role === 'patient' && (
                     <button
                       onClick={() => setShowUploadModal(true)}
                       className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-3 rounded-lg hover:from-blue-700 hover:to-purple-700 transition-all"
@@ -521,14 +828,26 @@ const Records = () => {
               <div className="flex items-center justify-between">
                 <h2 className="text-2xl font-bold text-gray-900">Upload Medical Record</h2>
                 <button
-                  onClick={() => setShowUploadModal(false)}
+                  onClick={() => {
+                    setShowUploadModal(false);
+                    setUploadForm({
+                      title: '',
+                      type: 'consultation',
+                      description: '',
+                      date: new Date().toISOString().split('T')[0],
+                      bodyPart: '',
+                      severity: 'low',
+                      tags: '',
+                      files: []
+                    });
+                  }}
                   className="p-2 text-gray-400 hover:text-gray-600 transition-colors"
                 >
                   <X className="w-6 h-6" />
                 </button>
               </div>
             </div>
-            
+
             <form onSubmit={handleUploadSubmit} className="p-6 space-y-6">
               <div className="grid md:grid-cols-2 gap-4">
                 <div>
@@ -634,26 +953,80 @@ const Records = () => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Files
+                  Files *
                 </label>
-                <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-blue-400 transition-colors">
-                  <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                  <p className="text-gray-600">Drop files here or click to upload</p>
-                  <p className="text-sm text-gray-500 mt-1">PDF, JPG, PNG up to 10MB</p>
+                <div
+                  className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+                    isDragging ? 'border-blue-400 bg-blue-50' : 'border-gray-300 hover:border-blue-400'
+                  }`}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setIsDragging(true);
+                  }}
+                  onDragLeave={() => setIsDragging(false)}
+                  onDrop={handleFileDrop}
+                >
                   <input
                     type="file"
                     multiple
                     accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
                     className="hidden"
-                    onChange={(e) => setUploadForm({...uploadForm, files: Array.from(e.target.files)})}
+                    id="fileInput"
+                    onChange={handleFileChange}
                   />
+                  <label
+                    htmlFor="fileInput"
+                    className="cursor-pointer flex flex-col items-center"
+                  >
+                    <Upload className="w-8 h-8 text-gray-400 mb-2" />
+                    <p className="text-gray-600">Drop files here or click to upload</p>
+                    <p className="text-sm text-gray-500 mt-1">PDF, JPG, PNG, DOCX up to 10MB</p>
+                  </label>
                 </div>
+                {uploadForm.files.length > 0 && (
+                  <div className="mt-4">
+                    <h4 className="text-sm font-medium text-gray-700 mb-2">Selected Files</h4>
+                    <div className="space-y-2">
+                      {uploadForm.files.map((file, index) => (
+                        <div
+                          key={index}
+                          className="flex items-center justify-between p-2 bg-gray-50 rounded-lg border border-gray-200"
+                        >
+                          <div className="flex items-center space-x-2">
+                            <FileText className="w-4 h-4 text-gray-500" />
+                            <span className="text-sm text-gray-700">{file.name}</span>
+                            <span className="text-xs text-gray-500">({(file.size / 1024 / 1024).toFixed(2)} MB)</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveFile(index)}
+                            className="text-red-500 hover:text-red-700"
+                          >
+                            <XCircle className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="flex justify-end space-x-4 pt-6 border-t border-gray-200">
                 <button
                   type="button"
-                  onClick={() => setShowUploadModal(false)}
+                  onClick={() => {
+                    setShowUploadModal(false);
+                    setUploadForm({
+                      title: '',
+                      type: 'consultation',
+                      description: '',
+                      date: new Date().toISOString().split('T')[0],
+                      bodyPart: '',
+                      severity: 'low',
+                      tags: '',
+                      files: []
+                    });
+                  }}
                   className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
                 >
                   Cancel
@@ -680,30 +1053,49 @@ const Records = () => {
           >
             <div className="p-6 border-b border-gray-200">
               <div className="flex items-center justify-between">
-                <h2 className="text-2xl font-bold text-gray-900">Share Records</h2>
+                <h2 className="text-2xl font-bold text-gray-900">Share Record</h2>
                 <button
-                  onClick={() => setShowShareModal(false)}
+                  onClick={() => {
+                    setShowShareModal(false);
+                    setSelectedRecord(null);
+                  }}
                   className="p-2 text-gray-400 hover:text-gray-600 transition-colors"
                 >
                   <X className="w-6 h-6" />
                 </button>
               </div>
             </div>
-            
-            <form onSubmit={handleShare} className="p-6 space-y-6">
+
+            <form onSubmit={handleShareRecord} className="p-6 space-y-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Doctor's Email *
+                  Share Method *
                 </label>
-                <input
-                  type="email"
-                  required
-                  value={shareForm.doctorEmail}
-                  onChange={(e) => setShareForm({...shareForm, doctorEmail: e.target.value})}
+                <select
+                  value={shareForm.shareMethod}
+                  onChange={(e) => setShareForm({ ...shareForm, shareMethod: e.target.value })}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="doctor@hospital.com"
-                />
+                >
+                  <option value="whatsapp">WhatsApp</option>
+                  <option value="portal">Portal</option>
+                </select>
               </div>
+
+              {shareForm.shareMethod === 'portal' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Doctor's Email *
+                  </label>
+                  <input
+                    type="email"
+                    required={shareForm.shareMethod === 'portal'}
+                    value={shareForm.doctorEmail}
+                    onChange={(e) => setShareForm({ ...shareForm, doctorEmail: e.target.value })}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="doctor@hospital.com"
+                  />
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -713,7 +1105,7 @@ const Records = () => {
                   <input
                     type="datetime-local"
                     value={shareForm.expiresAt}
-                    onChange={(e) => setShareForm({...shareForm, expiresAt: e.target.value})}
+                    onChange={(e) => setShareForm({ ...shareForm, expiresAt: e.target.value })}
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
@@ -723,7 +1115,7 @@ const Records = () => {
                   </label>
                   <select
                     value={shareForm.accessLevel}
-                    onChange={(e) => setShareForm({...shareForm, accessLevel: e.target.value})}
+                    onChange={(e) => setShareForm({ ...shareForm, accessLevel: e.target.value })}
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
                     <option value="read">Read Only</option>
@@ -739,7 +1131,7 @@ const Records = () => {
                 <textarea
                   rows={3}
                   value={shareForm.message}
-                  onChange={(e) => setShareForm({...shareForm, message: e.target.value})}
+                  onChange={(e) => setShareForm({ ...shareForm, message: e.target.value })}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   placeholder="Add a message for the doctor..."
                 />
@@ -748,7 +1140,10 @@ const Records = () => {
               <div className="flex justify-end space-x-4 pt-6 border-t border-gray-200">
                 <button
                   type="button"
-                  onClick={() => setShowShareModal(false)}
+                  onClick={() => {
+                    setShowShareModal(false);
+                    setSelectedRecord(null);
+                  }}
                   className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
                 >
                   Cancel
@@ -758,13 +1153,82 @@ const Records = () => {
                   className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 transition-all flex items-center space-x-2"
                 >
                   <Send className="w-5 h-5" />
-                  <span>Share Records</span>
+                  <span>Share Record</span>
                 </button>
               </div>
             </form>
           </motion.div>
         </div>
       )}
+
+      {/* View Record Modal */}
+      {showViewModal && selectedRecord && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-2xl shadow-xl max-w-lg w-full"
+          >
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-bold text-gray-900">View Record</h2>
+                <button
+                  onClick={() => setShowViewModal(false)}
+                  className="p-2 text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Details</h3>
+                <p className="text-gray-600"><strong>Title:</strong> {selectedRecord.title}</p>
+                <p className="text-gray-600"><strong>Type:</strong> {selectedRecord.type}</p>
+                <p className="text-gray-600"><strong>Date:</strong> {new Date(selectedRecord.date).toLocaleDateString()}</p>
+                <p className="text-gray-600"><strong>Description:</strong> {selectedRecord.description}</p>
+                <p className="text-gray-600"><strong>Severity:</strong> {selectedRecord.severity}</p>
+                {selectedRecord.bodyPart && (
+                  <p className="text-gray-600"><strong>Body Part:</strong> {bodyParts.find(p => p.id === selectedRecord.bodyPart)?.name}</p>
+                )}
+              </div>
+              {selectedRecord.files && selectedRecord.files.length > 0 && (
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Files</h3>
+                  {selectedRecord.files.map((file, index) => (
+                    <div key={index} className="flex items-center space-x-2 p-2 bg-gray-50 rounded-lg">
+                      <FileText className="w-4 h-4 text-gray-500" />
+                      <span className="text-sm text-gray-700">{file.name}</span>
+                      <span className="text-xs text-gray-500">({file.size})</span>
+                      <button
+                        onClick={() => handleDownloadRecord(selectedRecord)}
+                        className="text-xs text-blue-600 hover:underline"
+                      >
+                        Download
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="p-6 border-t border-gray-200 flex justify-end">
+              <button
+                onClick={() => setShowViewModal(false)}
+                className="px-6 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Insights Modal */}
+      <InsightsModal
+        isOpen={showInsightsModal}
+        onClose={() => setShowInsightsModal(false)}
+        insights={currentInsights || { summary: '', parameters: [], recommendations: [] }}
+      />
     </div>
   );
 };

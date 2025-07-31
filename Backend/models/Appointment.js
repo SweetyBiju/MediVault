@@ -26,7 +26,7 @@ const appointmentSchema = new mongoose.Schema({
       reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
       reviewedAt: Date
     }
-  ]
+  ] 
 }, { timestamps: true });
 
 const Appointment = mongoose.model('Appointment', appointmentSchema);
