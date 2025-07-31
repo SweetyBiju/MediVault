@@ -21,13 +21,11 @@ import HealthScoreGauge from '../components/HealthScoreGauge';
 import QuickActions from '../components/QuickActions';
 import AnimatedSection from '../components/AnimatedSection';
 import Insight from '../components/Insight';
-import { useAuth } from '../context/AuthContext';
-
+import { getAppointments, getAppointmentCount } from '../utils/api';
 import toast, { Toaster } from 'react-hot-toast';
+import axios from 'axios';
 
 const PatientDashboard = () => {
-  
-  const { currentUser } = useAuth();
   const bpRef = useRef(null);
   const sugarRef = useRef(null);
   const bpChartInstance = useRef(null);
@@ -35,6 +33,9 @@ const PatientDashboard = () => {
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(false);
+  const [appointments, setAppointments] = useState([]);
+  const [appointmentCount, setAppointmentCount] = useState(0);
+  const user = JSON.parse(localStorage.getItem("user")); //assume user object
 
   useEffect(() => {
     if (bpRef.current) {
@@ -47,13 +48,13 @@ const PatientDashboard = () => {
             data: [107, 105, 110, 120, 125, 130],
             borderColor: '#ef4444',
             tension: 0.4,
-            backgroundColor: 'rgba(239, 68, 68, 0.2)',
+            backgroundColor: 'rgba(239, 68, 68, 0.2)', // for BP (red tint)
             fill: true,
           }]
         },
         options: {
           responsive: true,
-          plugins: { legend: { display: true } },
+          plugins: { legend: { display: true }, },
           scales: {
             y: {
               beginAtZero: false,
@@ -75,11 +76,12 @@ const PatientDashboard = () => {
             tension: 0.4,
             backgroundColor: 'rgba(54, 162, 235, 0.2)',
             fill: true,
+
           }]
         },
         options: {
           responsive: true,
-          plugins: { legend: { display: true } },
+          plugins: { legend: { display: true }, },
           scales: {
             y: {
               beginAtZero: false,
@@ -91,30 +93,70 @@ const PatientDashboard = () => {
 
     const timer = setTimeout(() => {
       setLoading(false);
+      loadCharts();
     }, 1500);
+
+    const fetchData = async () => {
+      try {
+        if (user?._id) {
+          const [appointmentsRes, countRes] = await Promise.all([
+            getAppointments(user._id),
+            getAppointmentCount(user._id),
+          ]);
+          setAppointments(appointmentsRes.data);
+          setAppointmentCount(countRes.data.count);
+        }
+      } catch (error) {
+        console.error("Error fetching appointments:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    // const fetchAppointmentCount = async () => {
+    //   const token = localStorage.getItem('token'); // Assuming token-based auth
+    //   try {
+    //     const res = await axios.get('http://localhost:5600/api/appointments/count', {
+    //       headers: { Authorization: `Bearer ${token}` },
+    //     });
+    //     setAppointmentCount(res.data.count); // Adjust based on your API response (e.g., { count: 5 })
+    //   } catch (error) {
+    //     console.error('Error fetching appointment count:', error.response?.data?.error);
+    //     setAppointmentCount(0); // Fallback to 0 on error
+    //   }
+    // };
+    // fetchAppointmentCount();
+      const handleCountUpdate = () => {
+        const updatedCount = localStorage.getItem("appointmentCount");
+        if (updatedCount) setAppointmentCount(Number(updatedCount));
+      };
+      window.addEventListener("appointmentCountUpdated", handleCountUpdate);
+    
+
 
     return () => {
       bpChartInstance.current?.destroy();
       sugarChartInstance.current?.destroy();
+      window.removeEventListener("appointmentCountUpdated", handleCountUpdate);
     };
-  }, []);
+    fetchData();
+  }, [user]);
 
   const handleUploadToast = () => {
     toast.success('File uploaded successfully!');
   };
-
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#f8faff] via-[#f6f6fb] to-[#ffffff] dark:from-gray-900 dark:via-gray-900 dark:to-gray-950 text-gray-800 dark:text-white">
       <Toaster position='top-right' />
-     
-      <GreetingsCard user={currentUser.name }/>
+
+      <GreetingsCard user="John" />
 
       <main className="space-y-12">
         <AnimatedSection>
           <section className="max-w-6xl mx-auto px-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6">
             {[
               { title: "Total Records", value: uploadedFiles.length, icon: "file", color: "blue" },
-              { title: "Appointments", value: "3", icon: "calendar", color: "green" },
+              { title: "Appointments", value: appointmentCount.toString(), icon: "calendar", color: "green" },
               { title: "AI Insights", value: "4", icon: "chart", color: "purple" },
               { title: "Active Alerts", value: "2", icon: "alert", color: "red" },
               { title: "Medicines", value: "3", icon: "access", color: "orange" },
@@ -129,13 +171,40 @@ const PatientDashboard = () => {
             ))}
           </section>
         </AnimatedSection>
+        {/* 
+      /*<AnimatedSection>
+        <section className="max-w-6xl mx-auto px-4 grid lg:grid-cols-3 gap-6">
+          <div className="bg-white/60 dark:bg-gray-800/60 backdrop-blur-md border border-white/10 dark:border-gray-700 rounded-2xl shadow-lg hover:scale-[1.02] transition duration-300 ease-in-out p-6 space-y-4">
+            <h4 className="text-sm font-semibold">Why Your Score Dropped</h4>
+            <ul className="space-y-2 text-sm">
+              <li className="flex items-start gap-2"><span className="text-red-500">•</span> Missed medication on 3rd July</li>
+              <li className="flex items-start gap-2"><span className="text-yellow-500">•</span> Sugar levels high for 4 readings</li>
+              <li className="flex items-start gap-2"><span className="text-orange-500">•</span> No appointment in last 2 months</li>
+            </ul>
+          </div>
 
+          <div className="bg-white/60 dark:bg-gray-800/60 backdrop-blur-md border border-white/10 dark:border-gray-700 rounded-2xl shadow-lg hover:scale-[1.02] transition duration-300 ease-in-out p-6 flex flex-col items-center justify-center text-center">
+            <HealthScoreGauge score={92} />
+            <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">Overall Health Score</p>
+          </div>
+
+          {/* <div> */}
+        {/* <div className="bg-white/60 dark:bg-gray-800/60 backdrop-blur-md border border-white/10 dark:border-gray-700 rounded-2xl shadow-lg hover:scale-[1.02] transition duration-300 ease-in-out p-6 flex flex-col items-center justify-center text-center">
+            <h4 className="font-semibold mb-2">Last Health Check</h4>
+            <p><strong>Doctor:</strong> Dr. Ananya Mitra</p>
+            <p><strong>Clinic:</strong> Apollo Clinic, Salt Lake</p>
+            <p><strong>Date:</strong> July 4, 2025 — 10:30 AM</p>
+          </div> */}
+        {/* <QuickActions /> */}
+        {/* </div> */}
+        {/* </section> */}
+        {/* </AnimatedSection>  */}
         <AnimatedSection>
           <section className="max-w-6xl mx-auto px-4">
             <HealthScoreGauge score={92} />
           </section>
         </AnimatedSection>
-       
+        <QuickActions />
         <AnimatedSection>
           <section className="max-w-6xl mx-auto px-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 ">
             <ChartCard title="BP History" label="Latest: 122/84 mmHg " className="hover:ring-1 hover:ring-blue-400">
@@ -147,29 +216,6 @@ const PatientDashboard = () => {
             <BMIGauge bmiValue={24.5} />
           </section>
         </AnimatedSection>
-
-
-
-        
-        <AnimatedSection>
-          <section className="max-w-6xl mx-auto px-4 grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-            <div onClick={handleUploadToast}>
-              <Upload uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} />
-            </div>
-            <UploadList uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles}  limit={3} />
-          </section>
-        </AnimatedSection>
-        
-
-
-        <AnimatedSection>
-          <section className="max-w-6xl mx-auto px-4 grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <UpcomingAppointments />
-          <AppointmentRequestForm />
-          </section>
-        </AnimatedSection>
-
-        
         <AnimatedSection>
           <section className="max-w-6xl mx-auto px-4 mt-6">
             <Insight />
@@ -177,22 +223,38 @@ const PatientDashboard = () => {
         </AnimatedSection>
 
         <AnimatedSection>
-          <section className="max-w-6xl mx-auto px-4 grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <DoctorPanel />
-          <AllergyNotices />
+          <section className="max-w-6xl mx-auto px-4 grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+            <div onClick={handleUploadToast}>
+              <Upload uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} />
+            </div>
+            <UploadList uploadedFiles={uploadedFiles} setUploadedFiles={setUploadedFiles} />
           </section>
         </AnimatedSection>
 
         <AnimatedSection>
           <section className="max-w-6xl mx-auto px-4 grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <MedicationHistory />
-          <GeneralNotes />
+            <UpcomingAppointments appointments={appointments} />
+            <AppointmentRequestForm />
+          </section>
+        </AnimatedSection>
+
+        <AnimatedSection>
+          <section className="max-w-6xl mx-auto px-4 grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <DoctorPanel />
+            <AllergyNotices />
+          </section>
+        </AnimatedSection>
+
+        <AnimatedSection>
+          <section className="max-w-6xl mx-auto px-4 grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <MedicationHistory />
+            <GeneralNotes />
           </section>
         </AnimatedSection>
 
         <AnimatedSection>
           <section className="max-w-6xl mx-auto px-4">
-          <Timeline />
+            <Timeline />
           </section>
         </AnimatedSection>
       </main>
@@ -203,6 +265,7 @@ const PatientDashboard = () => {
       <div className="fixed bottom-24 left-4 z-40">
         <Chatbot />
       </div>
+
     </div>
   );
 };
