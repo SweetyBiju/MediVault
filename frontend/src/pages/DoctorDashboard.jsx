@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   Calendar, FileText, Users, Bell, TrendingUp, Activity,
@@ -11,19 +10,74 @@ import {
   Thermometer, Weight, MapPin, Download, Upload, Share2,
   Bookmark, Flag, Settings, HelpCircle
 } from 'lucide-react';
+import axios from 'axios';
+import { getAppointments, reviewChange } from "../utils/api";
+import toast from "react-hot-toast";
+import { AnimatePresence, motion } from "framer-motion";
 
 const DoctorDashboard = () => {
   const { currentUser } = useAuth();
+  const navigate = useNavigate();
   const [todayStats, setTodayStats] = useState({});
   const [appointments, setAppointments] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [patients, setPatients] = useState([]);
   const [recentActivity, setRecentActivity] = useState([]);
   const [aiInsights, setAiInsights] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [performanceMetrics, setPerformanceMetrics] = useState({});
   const [urgentTasks, setUrgentTasks] = useState([]);
+  const [pendingRequests, setPendingRequests] = useState([]);
 
-  // Combined Dummy Data Loader
+  const fetchAppointments = async () => {
+    try {
+      const res = await getAppointments(currentUser._id);
+      setAppointments(res.data);
+    } catch (err) {
+      console.error("Error fetching appointments:", err);
+      toast.error("Failed to load appointments");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (currentUser?._id) fetchAppointments();
+  }, [currentUser]);
+
+    const handleDecision = async (appointmentId, requestId, decision) => {
+    try {
+      const token = localStorage.getItem("token");
+      await axios.patch(
+        `http://localhost:5600/api/appointments/${appointmentId}/change-decision`,
+        { requestId, decision, reviewedBy: currentUser?._id },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      toast.success(`Request ${decision}`);
+
+      // Add flash effect
+      setPendingRequests(prev =>
+        prev.map(appt =>
+          appt._id === appointmentId
+            ? { ...appt, flashColor: decision === "approved" ? "green" : "red", tempStatus: decision }
+            : appt
+        )
+      );
+
+      // Remove from lists after animation
+      setTimeout(() => {
+        setPendingRequests(prev => prev.filter(appt => appt._id !== appointmentId));
+        setAppointments(prev => prev.filter(appt => appt._id !== appointmentId));
+      }, 1000);
+
+    } catch (err) {
+      console.error("Error updating appointment:", err.response?.data || err.message);
+      toast.error("Failed to process decision");
+    }
+  };
+
+    // Combined Dummy Data Loader
   useEffect(() => {
     // Second DoctorDashboard data (prioritized for existing fields)
     setTodayStats({
@@ -36,7 +90,6 @@ const DoctorDashboard = () => {
       responseTime: '12 min',
       satisfaction: 94
     });
-
     setAppointments([
       {
         id: 1,
@@ -282,6 +335,12 @@ const DoctorDashboard = () => {
     });
   }, []);
 
+  useEffect(() => {
+    setPendingRequests(appointments.filter(appt =>
+      ['requested', 'postpone', 'prepone', 'mode-changed'].includes(appt.status)
+    ));
+  }, [appointments]);
+
   // Chart Initialization (unchanged from second)
   useEffect(() => {
     const ctx = document.getElementById('performanceChart')?.getContext('2d');
@@ -342,7 +401,10 @@ const DoctorDashboard = () => {
   };
 
   const MetricCard = ({ title, value, unit, icon: Icon, color, trend }) => (
-    <div className="bg-white rounded-xl p-4 shadow-md border hover:shadow-xl transition">
+    <motion.div
+      whileHover={{ scale: 1.03 }}
+      className="bg-white rounded-xl p-4 shadow-md border hover:shadow-xl transition"
+    >
       <div className="flex items-center justify-between">
         <div>
           <p className="text-sm text-gray-500">{title}</p>
@@ -361,11 +423,16 @@ const DoctorDashboard = () => {
           <Icon className={`w-6 h-6 text-${color}-600`} />
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 py-8">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.6 }}
+      className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Welcome Header (from second) */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
@@ -416,15 +483,135 @@ const DoctorDashboard = () => {
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-              className="bg-white rounded-xl p-6 shadow-md border mb-10"
+              transition={{ duration: 0.6, delay: 0.5 }}
+              className="bg-white rounded-xl shadow-lg p-6 border border-gray-100"
             >
-              <h2 className="text-xl font-semibold text-gray-800 mb-4">Performance Overview</h2>
-              <canvas id="performanceChart" height="100" />
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-semibold text-gray-900">Performance Metrics</h2>
+                <button className="flex items-center space-x-2 text-blue-600 hover:text-blue-700 transition-colors">
+                  <BarChart3 className="w-4 h-4" />
+                  <span className="text-sm">Detailed Report</span>
+                </button>
+              </div>
+              <div className="grid md:grid-cols-3 gap-6">
+                {Object.entries(performanceMetrics).map(([key, value]) => (
+                  <div key={key} className="text-center p-4 bg-gray-50 rounded-lg">
+                    <div className="text-2xl font-bold text-gray-900 mb-1">
+                      {key.includes('Time') ? `${value} min` : `${value}%`}
+                    </div>
+                    <div className="text-sm text-gray-600 capitalize">
+                      {key.replace(/([A-Z])/g, ' $1').trim()}
+                    </div>
+                    <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
+                      <div
+                        className="bg-blue-500 h-2 rounded-full transition-all duration-1000"
+                        style={{ width: `${Math.min(value, 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
             </motion.div>
 
-            {/* Today's Schedule (from first) */}
+            {/* Pending Appointment Requests */}
             <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6 }}
+              className="bg-white rounded-xl shadow-lg p-6 border border-gray-100 mb-6"
+            >
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">
+                Pending Appointment Requests
+              </h2>
+              <AnimatePresence>
+                {pendingRequests && pendingRequests.length > 0 ? (
+                  <div className="max-h-96 overflow-y-auto space-y-3">
+                    {pendingRequests.map((appt) => (
+                      <motion.div
+                        key={appt._id}
+                        id={`req-${appt._id}`}
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.8 }}
+                        transition={{ duration: 0.3 }}
+                        className={`p-4 border rounded-lg shadow-sm bg-gray-50 hover:shadow-md transition relative`}
+                        style={{
+                          backgroundColor: appt.flashColor
+                            ? appt.flashColor === "green"
+                              ? "#d1fae5"
+                              : "#fee2e2"
+                            : "#f9fafb"
+                        }}
+                      >
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <p className="font-semibold text-lg">
+                              {appt.patientId?.name || "Unknown Patient"}
+                            </p>
+                            <p className="text-sm text-gray-600">
+                              <strong>Request Type:</strong>{" "}
+                              {appt.status === "requested"
+                                ? "New Appointment"
+                                : appt.status === "postpone"
+                                  ? "Postpone Request"
+                                  : appt.status === "prepone"
+                                    ? "Prepone Request"
+                                    : appt.status === "mode-changed"
+                                      ? "Change Mode"
+                                      : "Other"}
+                            </p>
+                            {(appt.reason || appt.changeRequests?.[0]?.reason) && (
+                              <p className="text-sm text-gray-500 italic mt-1">
+                                <strong>Purpose:</strong>{" "}
+                                {appt.reason || appt.changeRequests?.[0]?.reason}
+                              </p>
+                            )}
+                            <p className="text-sm text-gray-600 mt-1">
+                              <strong>Date:</strong>{" "}
+                              {appt.date ? new Date(appt.date).toLocaleDateString() : "N/A"} |{" "}
+                              <strong>Time:</strong> {appt.time || "N/A"} |{" "}
+                              <strong>Mode:</strong> {appt.isVirtual ? "Virtual" : "Walk-in"}
+                            </p>
+                          </div>
+                          <div className="space-x-2 flex-shrink-0">
+                            <button
+                              onClick={() => {
+                                if (!appt.changeRequests?.[0]?._id) {
+                                  console.error("No changeRequest ID for appointment:", appt);
+                                  return;
+                                }
+                                handleDecision(appt._id, appt.changeRequests[0]._id, "approved");
+                              }}
+                              className="px-3 py-1 bg-green-500 text-white rounded-md hover:bg-green-600"
+                            >
+                              Approve
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (!appt.changeRequests?.[0]?._id) {
+                                  console.error("No changeRequest ID for appointment:", appt);
+                                  return;
+                                }
+                                handleDecision(appt._id, appt.changeRequests[0]._id, "rejected");
+                              }}
+                              className="px-3 py-1 bg-red-500 text-white rounded-md hover:bg-red-600"
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-gray-500 italic">No pending requests.</p>
+                )}
+              </AnimatePresence>
+            </motion.div>
+
+
+            {/* Today's Schedule (from first) */}
+{/*             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.2 }}
@@ -493,6 +680,70 @@ const DoctorDashboard = () => {
                   </div>
                 ))}
               </div>
+            </motion.div> */}
+
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6 }}
+              className="bg-white rounded-xl shadow-lg p-6 border border-gray-100 mb-6"
+            >
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-semibold text-gray-900">
+                  Upcoming Appointments
+                </h2>
+                <Link
+                  to={{
+                    pathname: "/appointments",
+                    state: { userId: currentUser?._id, role: "doctor" }
+                  }}
+                  className="text-sm text-blue-600 hover:text-blue-800 transition-colors"
+                >
+                  View All →
+                </Link>
+              </div>
+              {appointments && appointments.length > 0 ? (
+                appointments
+                  .filter(
+                    (appt) =>
+                      (appt.status === "confirmed" || appt.status === "scheduled") &&
+                      appt.doctorId?._id === currentUser?._id
+                  )
+                  .sort((a, b) => new Date(a.date + " " + a.time) - new Date(b.date + " " + b.time))
+                  .slice(0, 6)
+                  .map((appt) => (
+                    <motion.div
+                      key={appt._id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3 }}
+                      className="p-4 mb-3 border rounded-lg shadow-sm hover:shadow-md transition"
+                    >
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <p className="font-semibold text-lg">{appt.patientId?.name}</p>
+                          <p className="text-sm text-gray-600">
+                            {new Date(appt.date).toLocaleDateString()} at {appt.time}{" "}
+                            • {appt.isVirtual ? "Virtual" : "In-person"}
+                          </p>
+                          {appt.reason && (
+                            <p className="text-sm text-gray-500 italic">{appt.reason}</p>
+                          )}
+                        </div>
+                        <span
+                          className={`px-3 py-1 rounded-full text-xs ${appt.status === "confirmed"
+                            ? "bg-green-100 text-green-700"
+                            : "bg-yellow-100 text-yellow-700"
+                            }`}
+                        >
+                          {appt.status}
+                        </span>
+                      </div>
+                    </motion.div>
+                  ))
+              ) : (
+                <p className="text-gray-500 italic">No upcoming appointments.</p>
+              )}
             </motion.div>
 
             {/* AI Insights (from first) */}
