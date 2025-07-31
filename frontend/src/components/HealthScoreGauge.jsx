@@ -1,8 +1,12 @@
 import React from "react";
 import { Calendar, Clock, HeartPulse } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 const HealthScoreGauge = ({ score = 78 }) => {
   // Color and risk based on score
+  const navigate = useNavigate();
+  const handleViewDetails = () => navigate(`/upload-details`);
+  const handleSeeInsights = () => navigate(`/insights`);
   const getScoreColor = (val) => {
     if (val >= 80) return "bg-green-500";
     if (val >= 60) return "bg-yellow-400";
@@ -64,7 +68,10 @@ const HealthScoreGauge = ({ score = 78 }) => {
         <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg shadow transition">
           View Details →
         </button>
-        <button className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white px-4 py-2 rounded-lg shadow transition">
+        <button
+          onClick={handleSeeInsights}
+          className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white px-4 py-2 rounded-lg shadow transition"
+        >
           See AI Insights →
         </button>
       </div>
