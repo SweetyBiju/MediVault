@@ -1041,7 +1041,8 @@ const DoctorDashboard = () => {
           </div>
         </div>
       </div>
-    </div>
+      </motion.div>
+   
   );
 };
 
