@@ -55,7 +55,7 @@ const HealthScoreGauge = ({ score = 78 }) => {
 
         <div className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
           <Clock size={18} />
-          <span><strong>Next Appointment:</strong> Aug 10, 2025</span>
+          <span><strong>Next Appointment:</strong> Aug 3, 2025</span>
         </div>
 
         <div className="mt-4 text-sm text-gray-600 dark:text-gray-400 italic">

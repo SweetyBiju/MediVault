@@ -1,143 +1,88 @@
-import { geminiText, geminiVision } from "../services/gemini.service.js";
-import {
-  getRxcuiByName,
-  getIngredientsByRxcui,
-  getInteractionsByRxcui,
-} from "../services/rxnorm.service.js";
-import { getDrugLabelByIngredient } from "../services/openfda.service.js";
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import multer from 'multer';
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY_2);
 
-export async function handleTextBot(req, res) {
+export const handleTextBot = async (req, res) => {
   try {
     const { message, userAllergies = [] } = req.body;
 
-    // 1. Extract medicine names using Gemini
-    const extractPrompt = `
-You are a medical assistant. Extract medicine names (brand or generic) from this text as a JSON array.
-Text: "${message}"
-Return only JSON.
-`;
-    const extractJson = await geminiText(extractPrompt);
-    let meds = [];
-    try {
-      meds = JSON.parse(extractJson);
-    } catch {
-      meds = [];
+    if (!message) {
+      return res.status(400).json({ error: "Message is required." });
     }
 
-    const analysis = [];
+    const prompt = `
+You are a medical assistant chatbot. The user has the following allergies: ${JSON.stringify(
+      userAllergies
+    )}.
+Provide a friendly, non-diagnostic response to the question below.
+If medications are mentioned, warn about possible allergy interactions.
 
-    for (const med of meds) {
-      const rxcui = await getRxcuiByName(med);
-      const ingredientsData = await getIngredientsByRxcui(rxcui);
-      const ingredients = ingredientsData.map((i) => i.name);
+Question:
+${message}
 
-      const allergyHits = ingredients.filter((ing) =>
-        userAllergies.map((a) => a.toLowerCase()).includes(ing.toLowerCase())
-      );
-
-      const fdaData = {};
-      for (const ing of ingredients) {
-        fdaData[ing] = await getDrugLabelByIngredient(ing, 1);
-      }
-
-      const interactions = rxcui ? await getInteractionsByRxcui(rxcui) : null;
-
-      analysis.push({
-        med,
-        rxcui,
-        ingredients,
-        allergyHits,
-        fdaData,
-        interactions,
-      });
-    }
-
-    const finalPrompt = `
-User allergies: ${JSON.stringify(userAllergies)}
-Analysis: ${JSON.stringify(analysis, null, 2)}
-Summarize which medicines are risky, why, and what to avoid. Give concise bullet points.
+Respond in plain text (no JSON).
 `;
-    const reply = await geminiText(finalPrompt);
+
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const result = await model.generateContent(prompt);
+    const reply = result.response.text();
 
     res.json({
-      analysis,
       reply,
       disclaimer:
-        "This is not a medical diagnosis. Consult a licensed physician for clinical decisions.",
+        "This is not medical advice. Always consult a licensed healthcare professional.",
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
+    console.error("[Chatbot Error]:", err.message);
+    res.status(500).json({ error: "Failed to process your question." });
   }
-}
+};
 
-export async function handleImageBot(req, res) {
+// Memory storage for image upload
+
+// For multer memory upload (used in routes)
+export const uploadImage = multer({ storage: multer.memoryStorage() }).single("image");
+
+export const handleImageBot = async (req, res) => {
   try {
     const { userAllergies = [] } = req.body;
-    if (!req.file)
-      return res.status(400).json({ error: "Image file is required" });
 
-    const base64 = req.file.buffer.toString("base64");
-    const visionPrompt = `
-Extract medicine names, strengths, and forms from this image. Return JSON:
-{ "medicines": [ { "name": "...", "strength":"...", "form":"..." } ] }
-If nothing, return {"medicines":[]}
-`;
-    const visionText = await geminiVision({
-      base64Image: base64,
-      mimeType: req.file.mimetype,
-      prompt: visionPrompt,
-    });
-
-    let parsed = { medicines: [] };
-    try {
-      parsed = JSON.parse(visionText);
-    } catch {}
-
-    const analysis = [];
-
-    for (const m of parsed.medicines) {
-      const rxcui = await getRxcuiByName(m.name);
-      const ingredientsData = await getIngredientsByRxcui(rxcui);
-      const ingredients = ingredientsData.map((i) => i.name);
-
-      const allergyHits = ingredients.filter((ing) =>
-        userAllergies.map((a) => a.toLowerCase()).includes(ing.toLowerCase())
-      );
-
-      const fdaData = {};
-      for (const ing of ingredients) {
-        fdaData[ing] = await getDrugLabelByIngredient(ing, 1);
-      }
-
-      const interactions = rxcui ? await getInteractionsByRxcui(rxcui) : null;
-
-      analysis.push({
-        ...m,
-        rxcui,
-        ingredients,
-        allergyHits,
-        fdaData,
-        interactions,
-      });
+    if (!req.file) {
+      return res.status(400).json({ error: "Image is required." });
     }
 
-    const finalPrompt = `
-User allergies: ${JSON.stringify(userAllergies)}
-Image-extracted analysis: ${JSON.stringify(analysis, null, 2)}
-Summarize risks, overlaps, and important warnings. Keep it short.
+    const base64Image = req.file.buffer.toString("base64");
+    const mimeType = req.file.mimetype;
+
+    const prompt = `
+You are a medical assistant. Extract medicine names, strengths, and forms from the image.
+Highlight any risks or allergic ingredients based on these allergies: ${JSON.stringify(userAllergies)}.
+Summarize your findings in plain English. Avoid extra formatting or JSON.
 `;
-    const reply = await geminiText(finalPrompt);
+
+    const model = genAI.getGenerativeModel({ model: "gemini-pro-vision" });
+
+    const result = await model.generateContent([
+      {
+        inlineData: {
+          mimeType,
+          data: base64Image,
+        },
+      },
+      {
+        text: prompt,
+      },
+    ]);
+
+    const reply = result.response.text();
 
     res.json({
-      extracted: parsed,
-      analysis,
       reply,
       disclaimer:
-        "This is not a medical diagnosis. Consult a licensed physician for clinical decisions.",
+        "This is not a medical diagnosis. Always consult a licensed doctor.",
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
+    console.error("[Image Bot Error]:", err.message);
+    res.status(500).json({ error: "Failed to analyze image." });
   }
-}
+};
