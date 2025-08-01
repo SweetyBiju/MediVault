@@ -106,6 +106,26 @@ const Navbar = () => {
                       <CreditCard className="w-4 h-4" />
                       Subscription Plans
                     </Link>
+
+                  <Link
+                    to="/feedback"
+                     className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+                    onClick={() => setShowUserMenu(false)}
+                  >
+                    
+                   📝 Feedback
+                  </Link>
+
+{/* ✅ NEW FORUM LINK */}
+                  <Link
+                  to="/forum"
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+                  onClick={() => setShowUserMenu(false)}
+                  >
+                   💬 Forum
+                  </Link>
+
+
                     <button
                       onClick={handleLogout}
                       className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center space-x-2"
