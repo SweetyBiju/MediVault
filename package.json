@@ -1,7 +1,7 @@
 {
   "name": "flames_medivault",
   "scripts": {
-    "start:backend": "cd backend && npm start",
+    "start:backend": "cd Backend && npm start",
     "start:frontend": "cd frontend && npm run dev",
     "start": "npm-run-all --parallel start:backend start:frontend"
   },
