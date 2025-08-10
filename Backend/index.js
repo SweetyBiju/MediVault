@@ -17,8 +17,19 @@ import botRouter from "./routes/bot.routes.js";
 const app = express();
 
 // ===== Middleware =====
+const allowedOrigins = [
+  'http://localhost:5173', // Local frontend
+  'https://medivault-ebon.vercel.app' // Production frontend
+];
+
 app.use(cors({
-  origin: 'http://localhost:5173', // Match your frontend URL
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true); // allow non-browser clients
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('Not allowed by CORS'));
+  }, // Match your frontend URL
   credentials: true,
 }));
 app.use(express.json());
