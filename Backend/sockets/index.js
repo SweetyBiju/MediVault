@@ -3,7 +3,7 @@ const socketIo = require('socket.io');
 const setupSockets = (server) => {
   const io = socketIo(server, {
     cors: {
-      origin: 'http://localhost:5173', // Adjust to your frontend URL
+      origin: 'https://medi-vault-ten.vercel.app/', // Adjust to your frontend URL(http://localhost:5173)
       methods: ['GET', 'POST']
     }
   });
