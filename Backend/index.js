@@ -19,6 +19,7 @@ const app = express();
 // ===== Middleware =====
 const allowedOrigins = [
   'http://localhost:5173', // Local frontend
+  'https://medi-vault-ten.vercel.app/',
   'https://medivault-ebon.vercel.app' // Production frontend
 ];
 
@@ -59,3 +60,4 @@ app.use((err, req, res, next) => {
 // ===== Server Listen =====
 const PORT = config.port || 5600;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
