@@ -36,7 +36,34 @@ const PatientDashboard = () => {
   const [appointments, setAppointments] = useState([]);
   const [appointmentCount, setAppointmentCount] = useState(0);
   const user = JSON.parse(localStorage.getItem("user")); //assume user object
+  const [insightCount, setInsightCount] = useState(0);
+  const [allergyCount, setAllergyCount] = useState(0);
+  useEffect(() => {
+  const userData = JSON.parse(localStorage.getItem("user"));
+  setAllergyCount(userData?.allergies?.length || 0);
+}, []);
 
+  useEffect(() => {
+  const handleAllergyUpdate = () => {
+    const updatedUser = JSON.parse(localStorage.getItem("user"));
+    setAllergyCount(updatedUser?.allergies?.length || 0);
+  };
+  window.addEventListener("allergiesUpdated", handleAllergyUpdate);
+  return () => window.removeEventListener("allergiesUpdated", handleAllergyUpdate);
+}, []);
+
+  useEffect(() => {
+    const fetchInsights = async () => {
+      try {
+        const res = await axios.get(`http://localhost:5600/api/insights/${user._id}`);
+        setInsightCount(res.data.length);  // assuming API returns an array of insights
+      } catch (error) {
+        console.error("Error fetching insights:", error);
+      }
+    };
+    fetchInsights();
+  }, [user]);
+  
   useEffect(() => {
     if (bpRef.current) {
       bpChartInstance.current = new Chart(bpRef.current, {
@@ -158,7 +185,7 @@ const PatientDashboard = () => {
               { title: "Total Records", value: uploadedFiles.length, icon: "file", color: "blue" },
               { title: "Appointments", value: appointmentCount.toString(), icon: "calendar", color: "green" },
               { title: "AI Insights", value: "4", icon: "chart", color: "purple" },
-              { title: "Active Alerts", value: "2", icon: "alert", color: "red" },
+              { title: "Allergies", value: allergyCount.toString(), icon: "alert", color: "orange" },
               { title: "Medicines", value: "3", icon: "access", color: "orange" },
               { title: "Next Checkup", value: "In 2 days", icon: "countdown", color: "yellow" }
             ].map((stat, index) => (
@@ -239,7 +266,7 @@ const PatientDashboard = () => {
         <AnimatedSection>
           <section className="max-w-6xl mx-auto px-4 grid grid-cols-1 lg:grid-cols-2 gap-6">
             <DoctorPanel />
-            <AllergyNotices />
+            <AllergyNotices allergies={user?.allergies || []} />
           </section>
         </AnimatedSection>
 
@@ -266,3 +293,4 @@ const PatientDashboard = () => {
 };
 
 export default PatientDashboard;
+
