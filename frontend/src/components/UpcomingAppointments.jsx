@@ -138,7 +138,7 @@ const UpcomingAppointments = () => {
             onClick={fetchAppointments}
             className="flex items-center gap-1 text-sm text-green-600 dark:text-green-400 hover:underline"
           >
-            🔄 Refresh
+            <RefreshCcw className="w-4 h-4" /> Refresh
           </button>
         </div>
       </div>
@@ -369,3 +369,4 @@ const UpcomingAppointments = () => {
 };
 
 export default UpcomingAppointments;
+
