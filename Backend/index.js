@@ -20,6 +20,7 @@ const app = express();
 const allowedOrigins = [
   'http://localhost:5173', // Local frontend
   'https://medi-vault-ten.vercel.app' // Production frontend
+  'https://medi-vault-ten.vercel.app/signin' //signin page
 ];
 
 app.use(cors({
@@ -59,6 +60,7 @@ app.use((err, req, res, next) => {
 // ===== Server Listen =====
 const PORT = config.port || 5600;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
 
 
 
