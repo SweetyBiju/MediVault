@@ -12,7 +12,7 @@ import insightRoutes from './routes/insightRoutes.js';
 import uploadRoutes from './routes/uploadRoutes.js';
 import allergyRoutes from './routes/allergyRoutes.js';
 import botRouter from "./routes/bot.routes.js";
-// import dashboardRoutes from './routes/dashboardRoutes.js'; // Uncomment if needed
+import dashboardRoutes from './routes/dashboardRoutes.js'; // Uncomment if needed
 
 const app = express();
 
@@ -44,7 +44,7 @@ app.use('/api', doctorRoutes);
 app.use('/api/insights', insightRoutes);
 app.use('/api/uploads', uploadRoutes);
 app.use('/api/allergies', allergyRoutes);
-// app.use('/api/dashboard', dashboardRoutes); // Uncomment if needed
+app.use('/api/dashboard', dashboardRoutes); // Uncomment if needed
 
 app.use("/api/bot", botRouter);
 
@@ -59,6 +59,7 @@ app.use((err, req, res, next) => {
 // ===== Server Listen =====
 const PORT = config.port || 5600;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
 
 
 
